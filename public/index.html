@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>StarChat — Chat With Your Favorite Creators</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
+<script src="https://web.squarecdn.com/v1/square.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -407,6 +407,11 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
         <div class="edit-av-btn">✏️</div>
       </div>
       <div class="my-name-text" id="me-name">...</div>
+      <div style="display:flex;gap:8px;justify-content:center;margin-top:12px;flex-wrap:wrap;">
+        <button class="btn btn-gold btn-sm" onclick="shareProfile()">🔗 Share Profile</button>
+        <button class="btn btn-ghost btn-sm" onclick="copyReferralLink()">🎁 Referral Link</button>
+        <button class="btn btn-ghost btn-sm" onclick="showStats()">📊 My Stats</button>
+      </div>
       <div class="my-handle-text" id="me-handle">...</div>
       <div class="star-badge" style="margin:12px auto 0;display:inline-flex;">⭐ <span class="star-count">0</span> Stars</div>
     </div>
@@ -415,6 +420,22 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
       <div><label class="form-label">Bio</label><textarea rows="3" id="edit-bio" style="resize:none;"></textarea></div>
       <div><label class="form-label">Email</label><input type="email" id="edit-email"></div>
       <button class="btn btn-gold" style="width:100%;" onclick="saveProfile()">Save Changes ✓</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;">
+        <div>
+          <div style="font-size:14px;font-weight:500;">Read Receipts</div>
+          <div style="font-size:12px;color:var(--text2);">Let creators see when you read their messages</div>
+        </div>
+        <div id="read-receipt-toggle" onclick="toggleReadReceipts()" style="width:48px;height:26px;border-radius:13px;background:var(--gold);cursor:pointer;position:relative;transition:background 0.2s;">
+          <div id="read-receipt-knob" style="position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#000;transition:transform 0.2s;transform:translateX(22px);"></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg2);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px;">
+        <div>
+          <div style="font-size:14px;font-weight:500;">Change Profile Picture</div>
+          <div style="font-size:12px;color:var(--text2);">Upload a photo or choose an emoji</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="changeProfilePic()">Change</button>
+      </div>
       <div class="creator-earn" id="earn-panel" style="display:none;">
         <div style="font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:12px;">💰 Creator Earnings</div>
         <div class="earn-row"><span style="color:var(--text2);font-size:14px;">Total Earned (Stars)</span><span style="color:var(--gold);font-weight:700;" id="earn-total">0</span></div>
@@ -574,8 +595,66 @@ async function giftStars() {
   showToast('🎁 Gifted ' + stars + ' stars to ' + res.fanName + '!');
 }
 
+async function shareProfile() {
+  const user = state.user;
+  if (!user) return;
+  const url = 'https://integrid.us?creator=' + (user.id || '');
+  if (navigator.share) {
+    navigator.share({ title: user.name + ' on StarChat', text: 'Chat with me on StarChat! ⭐', url });
+  } else {
+    navigator.clipboard.writeText(url).then(() => showToast('🔗 Profile link copied!'));
+  }
+}
+
+async function copyReferralLink() {
+  const res = await api('GET', '/api/referral/stats');
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  const link = res.referralLink;
+  navigator.clipboard.writeText(link).then(() => showToast('🎁 Referral link copied! +25⭐ per signup'));
+}
+
+async function showStats() {
+  const res = await api('GET', '/api/referral/stats');
+  if (res.error) return;
+  showToast('📊 ' + res.totalReferred + ' referrals · ' + res.starsEarned + '⭐ earned');
+}
+
+let readReceiptsOn = true;
+async function toggleReadReceipts() {
+  readReceiptsOn = !readReceiptsOn;
+  const toggle = document.getElementById('read-receipt-toggle');
+  const knob = document.getElementById('read-receipt-knob');
+  toggle.style.background = readReceiptsOn ? 'var(--gold)' : 'var(--text3)';
+  knob.style.transform = readReceiptsOn ? 'translateX(22px)' : 'translateX(0)';
+  await api('PATCH', '/api/settings', { readReceipts: readReceiptsOn });
+  showToast('Read receipts ' + (readReceiptsOn ? 'on' : 'off'));
+}
+
+function changeProfilePic() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target.result;
+      document.getElementById('me-emoji').style.backgroundImage = 'url(' + dataUrl + ')';
+      document.getElementById('me-emoji').style.backgroundSize = 'cover';
+      document.getElementById('me-emoji').style.backgroundPosition = 'center';
+      document.getElementById('me-emoji').textContent = '';
+      await api('PATCH', '/api/settings', { profilePic: dataUrl });
+      showToast('✅ Profile picture updated!');
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
 async function doLogout() {
   await api('POST', '/api/logout');
+  try { localStorage.removeItem('sc_user'); } catch(e) {}
   state.user = null;
   document.getElementById('main-nav').style.display = 'none';
   state.history = [];
@@ -583,6 +662,7 @@ async function doLogout() {
 }
 
 function afterLogin() {
+  try { localStorage.setItem('sc_user', JSON.stringify(state.user)); } catch(e) {}
   document.getElementById('main-nav').style.display = 'flex';
   state.history = [];
   loadCreators();
@@ -846,6 +926,7 @@ async function initSquare() {
 }
 
 function openBuyModal() {
+  if (state.user && state.user.role === "creator") { showToast("⭐ Creators get stars for free!"); return; }
   renderPkgList();
   document.getElementById('buy-modal').classList.add('show');
   document.getElementById('square-form').style.display = 'none';
@@ -997,6 +1078,11 @@ document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('cli
 // ── INIT ──────────────────────────────────────────────────────────────────────
 renderCatBar();
 // Check for existing session on load
+// Try localStorage first for instant load
+try {
+  const saved = localStorage.getItem('sc_user');
+  if (saved) { state.user = JSON.parse(saved); updateStarDisplays(); }
+} catch(e) {}
 (async () => {
   const res = await api('GET', '/api/me');
   if (!res.error) {

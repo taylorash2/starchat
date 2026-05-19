@@ -19,7 +19,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 7 * 24 * 60 * 60 * 1000 }
+  cookie: { secure: false, maxAge: 30 * 24 * 60 * 60 * 1000, sameSite: 'lax' }
 }));
 
 // ── Square Client ─────────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ app.post('/api/signup', (req, res) => {
     role: role || 'fan',
     stars: 50,
     handle: handle || `@${name.toLowerCase().replace(/\s/g,'')}`,
-    bio: '',
+    bio: '', referralCode: id.slice(0,8), referredBy: null, referralGiftsToday: 0, referralGiftDate: null, readReceipts: true, profilePic: null,
     emoji: role === 'creator' ? '🌟' : '⭐',
     createdAt: new Date().toISOString(),
     // creator-specific
@@ -106,6 +106,16 @@ app.post('/api/signup', (req, res) => {
 
   // 50 free welcome stars logged
   db.transactions.push({ id: uuidv4(), userId: id, type: 'purchase', stars: 50, amount: 0, packageLabel: '🎁 Welcome Gift — Free Stars', createdAt: new Date().toISOString() });
+  // Handle referral bonus
+  const { referralCode } = req.body;
+  if (referralCode) {
+    const referrer = Object.values(db.users).concat(Object.values(db.creators)).find(u => u.referralCode === referralCode);
+    if (referrer && referrer.id !== id) {
+      referrer.stars = (referrer.stars || 0) + 25;
+      user.referredBy = referrer.id;
+      db.transactions.push({ id: uuidv4(), userId: referrer.id, type: 'purchase', stars: 25, amount: 0, packageLabel: '🔗 Referral Bonus — Friend joined!', createdAt: new Date().toISOString() });
+    }
+  }
   req.session.userId = id;
   req.session.role = role || 'fan';
   res.json({ success: true, user: sanitizeUser(user) });
@@ -378,6 +388,51 @@ app.post('/api/creator/gift-stars', authRequired, (req, res) => {
 });
 
 // Get all fans (for creator to search/gift)
+app.get('/api/fans', authRequired, (req, res) => {
+  const creator = db.creators[req.session.userId];
+  if (!creator) return res.status(403).json({ error: 'Creators only' });
+  const fans = Object.values(db.users).map(u => ({ id: u.id, name: u.name, handle: u.handle, stars: u.stars }));
+  res.json(fans);
+});
+
+
+// Referral stats
+app.get('/api/referral/stats', authRequired, (req, res) => {
+  const user = getUser(req.session.userId);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  const referred = Object.values(db.users).concat(Object.values(db.creators)).filter(u => u.referredBy === user.id);
+  res.json({ referralCode: user.referralCode, referralLink: 'https://' + (process.env.DOMAIN || 'integrid.us') + '?ref=' + user.referralCode, totalReferred: referred.length, starsEarned: referred.length * 25 });
+});
+
+// Update settings (read receipts)
+app.patch('/api/settings', authRequired, (req, res) => {
+  const user = getUser(req.session.userId);
+  if (!user) return res.status(404).json({ error: 'Not found' });
+  if (req.body.readReceipts !== undefined) user.readReceipts = req.body.readReceipts;
+  if (req.body.profilePic !== undefined) user.profilePic = req.body.profilePic;
+  res.json({ success: true, settings: { readReceipts: user.readReceipts, profilePic: user.profilePic } });
+});
+
+// Gift stars with 24hr limit of 100
+app.post('/api/creator/gift-stars', authRequired, (req, res) => {
+  const creator = db.creators[req.session.userId];
+  if (!creator) return res.status(403).json({ error: 'Only creators can gift stars' });
+  const { fanId, stars } = req.body;
+  if (!fanId || !stars || stars < 1) return res.status(400).json({ error: 'Invalid gift' });
+  const fan = db.users[fanId];
+  if (!fan) return res.status(404).json({ error: 'Fan not found' });
+  const amt = parseInt(stars);
+  // 24hr limit
+  const today = new Date().toDateString();
+  if (creator.referralGiftDate !== today) { creator.referralGiftsToday = 0; creator.referralGiftDate = today; }
+  if ((creator.referralGiftsToday || 0) + amt > 100) return res.status(400).json({ error: 'Daily gift limit is 100 stars per 24 hours', remaining: 100 - (creator.referralGiftsToday || 0) });
+  creator.referralGiftsToday = (creator.referralGiftsToday || 0) + amt;
+  fan.stars += amt;
+  db.transactions.push({ id: uuidv4(), userId: fan.id, type: 'purchase', stars: amt, amount: 0, packageLabel: '🎁 Gift from ' + creator.name, createdAt: new Date().toISOString() });
+  res.json({ success: true, giftedStars: amt, fanName: fan.name, fanStarsNow: fan.stars, remainingToday: 100 - creator.referralGiftsToday });
+});
+
+// Get all fans for creator
 app.get('/api/fans', authRequired, (req, res) => {
   const creator = db.creators[req.session.userId];
   if (!creator) return res.status(403).json({ error: 'Creators only' });
