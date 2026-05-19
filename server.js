@@ -85,7 +85,7 @@ app.post('/api/signup', (req, res) => {
     id, name, email,
     passwordHash: Buffer.from(password).toString('base64'), // use bcrypt in production
     role: role || 'fan',
-    stars: 0,
+    stars: 50,
     handle: handle || `@${name.toLowerCase().replace(/\s/g,'')}`,
     bio: '',
     emoji: role === 'creator' ? '🌟' : '⭐',
@@ -104,6 +104,8 @@ app.post('/api/signup', (req, res) => {
     db.users[id] = user;
   }
 
+  // 50 free welcome stars logged
+  db.transactions.push({ id: uuidv4(), userId: id, type: 'purchase', stars: 50, amount: 0, packageLabel: '🎁 Welcome Gift — Free Stars', createdAt: new Date().toISOString() });
   req.session.userId = id;
   req.session.role = role || 'fan';
   res.json({ success: true, user: sanitizeUser(user) });
