@@ -231,7 +231,15 @@ app.post('/api/message/send', authRequired, async (req, res) => {
   const user = getUser(req.session.userId);
   const creator = db.creators[creatorId];
   if (!user || !creator) return res.status(404).json({ error: 'Not found' });
-  if (user.role === 'creator') return res.status(400).json({ error: 'Creators cannot message creators' });
+
+  // Creators reply for FREE — no star cost
+  if (user.role === 'creator') {
+    const convId = [user.id, creatorId].sort().join('_');
+    if (!db.messages[convId]) db.messages[convId] = [];
+    const msg = { id: uuidv4(), senderId: user.id, senderName: user.name, creatorId, type: req.body.type || 'message', content: req.body.content, cost: 0, creatorShare: 0, platformShare: 0, createdAt: new Date().toISOString() };
+    db.messages[convId].push(msg);
+    return res.json({ success: true, message: msg, userStarsRemaining: user.stars || 0 });
+  }
 
   const COSTS = {
     message: creator.msgPrice,
@@ -353,6 +361,28 @@ app.get('/api/admin/stats', (req, res) => {
     .reduce((sum, t) => sum + (t.platformShare || 0), 0);
 
   res.json({ totalUsers, totalCreators, totalStarsSold, totalStarsSpent, platformRevenueStars: platformRevenue });
+});
+
+
+// Creator gift stars to a fan
+app.post('/api/creator/gift-stars', authRequired, (req, res) => {
+  const creator = db.creators[req.session.userId];
+  if (!creator) return res.status(403).json({ error: 'Only creators can gift stars' });
+  const { fanId, stars } = req.body;
+  if (!fanId || !stars || stars < 1) return res.status(400).json({ error: 'Invalid gift' });
+  const fan = db.users[fanId];
+  if (!fan) return res.status(404).json({ error: 'Fan not found' });
+  fan.stars += parseInt(stars);
+  db.transactions.push({ id: uuidv4(), userId: fanId, type: 'purchase', stars: parseInt(stars), amount: 0, packageLabel: '🎁 Gift from ' + creator.name, createdAt: new Date().toISOString() });
+  res.json({ success: true, giftedStars: stars, fanName: fan.name, fanStarsNow: fan.stars });
+});
+
+// Get all fans (for creator to search/gift)
+app.get('/api/fans', authRequired, (req, res) => {
+  const creator = db.creators[req.session.userId];
+  if (!creator) return res.status(403).json({ error: 'Creators only' });
+  const fans = Object.values(db.users).map(u => ({ id: u.id, name: u.name, handle: u.handle, stars: u.stars }));
+  res.json(fans);
 });
 
 // ── Catch-all: serve frontend ─────────────────────────────────────────────────

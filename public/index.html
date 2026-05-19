@@ -422,6 +422,15 @@ input::placeholder, textarea::placeholder { color: var(--text3); }
         <div class="earn-row"><span style="color:var(--text2);font-size:14px;">Est. USD Value</span><span style="color:var(--green);font-weight:700;" id="earn-usd">$0.00</span></div>
         <div class="earn-row"><span style="color:var(--text2);font-size:14px;">Your Split</span><span style="color:var(--green);font-weight:700;">50%</span></div>
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:14px;" onclick="requestPayout()">Request Payout 💸</button>
+        <div style="margin-top:16px;border-top:0.5px solid rgba(255,255,255,0.08);padding-top:16px;">
+          <div style="font-family:'Syne',sans-serif;font-size:14px;font-weight:700;margin-bottom:10px;">🎁 Gift Stars to a Fan</div>
+          <input type="text" id="gift-fan-id" placeholder="Fan's user ID or email" style="margin-bottom:8px;">
+          <div style="display:flex;gap:8px;">
+            <input type="number" id="gift-stars-amount" placeholder="Stars" min="1" style="width:100px;flex-shrink:0;">
+            <button class="btn btn-gold btn-sm" style="flex:1;" onclick="giftStars()">Send Gift ⭐</button>
+          </div>
+          <div style="font-size:11px;color:var(--text3);margin-top:6px;">Enter the fan's User ID from their profile</div>
+        </div>
       </div>
       <button class="btn btn-ghost" style="width:100%;color:#f44;border-color:rgba(255,68,68,0.2);" onclick="doLogout()">Sign Out</button>
     </div>
@@ -552,6 +561,17 @@ async function doLogin() {
   if (res.error) { err.textContent = res.error; err.style.display = 'block'; return; }
   state.user = res.user;
   afterLogin();
+}
+
+async function giftStars() {
+  const fanId = document.getElementById('gift-fan-id').value.trim();
+  const stars = parseInt(document.getElementById('gift-stars-amount').value);
+  if (!fanId || !stars || stars < 1) { showToast('❌ Enter a fan ID and amount'); return; }
+  const res = await api('POST', '/api/creator/gift-stars', { fanId, stars });
+  if (res.error) { showToast('❌ ' + res.error); return; }
+  document.getElementById('gift-fan-id').value = '';
+  document.getElementById('gift-stars-amount').value = '';
+  showToast('🎁 Gifted ' + stars + ' stars to ' + res.fanName + '!');
 }
 
 async function doLogout() {
