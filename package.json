@@ -1,3 +1,4 @@
+cd Downloads\starchat && npm install
 {
   "name": "starchat",
   "version": "1.0.0",
@@ -20,3 +21,4 @@
     "nodemon": "^3.0.2"
   }
 }
+
